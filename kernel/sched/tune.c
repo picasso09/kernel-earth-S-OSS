@@ -655,7 +655,7 @@ static void cpu_util_update_eff(struct cgroup_subsys_state *css)
 		}
 
 		/* Immediately update descendants RUNNABLE tasks */
-		uclamp_update_active_tasks(css, clamps);
+		uclamp_update_active_tasks(css);
 	}
 }
 
@@ -948,7 +948,7 @@ schedtune_init_cgroups(void)
 	schedtune_initialized = true;
 }
 
-#ifdef CONFIG_MTK_FPSGO_V3
+#ifdef CONFIG_SCHED_TUNE
 int prefer_idle_for_perf_idx(int idx, int prefer_idle)
 {
 	struct schedtune *ct = NULL;

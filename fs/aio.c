@@ -332,6 +332,9 @@ static int aio_ring_mremap(struct vm_area_struct *vma)
 	spin_lock(&mm->ioctx_lock);
 	rcu_read_lock();
 	table = rcu_dereference(mm->ioctx_table);
+	if (!table)
+		goto out_unlock;
+
 	for (i = 0; i < table->nr; i++) {
 		struct kioctx *ctx;
 
@@ -345,6 +348,7 @@ static int aio_ring_mremap(struct vm_area_struct *vma)
 		}
 	}
 
+out_unlock:
 	rcu_read_unlock();
 	spin_unlock(&mm->ioctx_lock);
 	return res;
@@ -1645,7 +1649,7 @@ static bool poll_iocb_lock_wq(struct poll_iocb *req)
 	 * In that case, only RCU prevents the queue memory from being freed.
 	 */
 	rcu_read_lock();
-	head = smp_load_acquire(&req->head); /* BS check patch */
+	head = smp_load_acquire(&req->head);
 	if (head) {
 		spin_lock(&head->lock);
 		if (!list_empty(&req->wait.entry))

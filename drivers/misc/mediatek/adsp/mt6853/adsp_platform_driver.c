@@ -15,11 +15,16 @@
 #include "adsp_mbox.h"
 #include "adsp_reserved_mem.h"
 #include "adsp_logger.h"
+
+#ifdef CONFIG_MTK_AEE_FEATURE
 #include "adsp_excep.h"
+#endif
+
 #include "adsp_reg.h"
 #include "adsp_platform.h"
 #include "adsp_platform_driver.h"
 #include "adsp_core.h"
+#include "adsp_timesync.h"
 
 #include <linux/suspend.h>
 #include <linux/arm-smccc.h> /* for Kernel Native SMC API */
@@ -83,10 +88,12 @@ int adsp_core0_init(struct adsp_priv *pdata)
 
 	adsp_update_mpu_memory_info(pdata);
 
+#ifdef CONFIG_MTK_AEE_FEATURE
 	/* exception init & irq */
 	init_adsp_exception_control(pdata->dev, adsp_wq, &adsp_waitq);
 	adsp_irq_registration(pdata->id, ADSP_IRQ_WDT_ID, adsp_wdt_handler,
 			      pdata);
+#endif
 
 	/* logger */
 	pdata->log_ctrl = adsp_logger_init(ADSP_A_LOGGER_MEM_ID, adsp_logger_init0_cb);
@@ -146,6 +153,7 @@ int adsp_core0_suspend(void)
 
 	if (get_adsp_state(pdata) == ADSP_RUNNING) {
 		reinit_completion(&pdata->done);
+		adsp_timesync_suspend(APTIME_UNFREEZE);
 		ret = adsp_push_message(ADSP_IPI_DVFS_SUSPEND, &status,
 					sizeof(status), 2000, pdata->id);
 		if (ret != ADSP_IPI_DONE) {
@@ -177,12 +185,14 @@ int adsp_core0_suspend(void)
 		switch_adsp_power(false);
 		set_adsp_state(pdata, ADSP_SUSPEND);
 	}
-	pr_info("%s(), done elapse %lld us", __func__,
+	pr_debug("%s(), done elapse %lld us", __func__,
 		ktime_us_delta(ktime_get(), start));
 	return 0;
 ERROR:
 	pr_warn("%s(), can't going to suspend, ret(%d)\n", __func__, ret);
+#ifdef CONFIG_MTK_AEE_FEATURE
 	adsp_aed_dispatch(EXCEP_KERNEL, pdata);
+#endif
 	return ret;
 }
 
@@ -198,7 +208,6 @@ int adsp_core0_resume(void)
 
 		set_adsp_dram_remapping(pdata->sysram_phys,
 					pdata->sysram_size);
-		timesync_to_adsp(pdata, APTIME_UNFREEZE);
 
 		reinit_completion(&pdata->done);
 		adsp_mt_run(pdata->id);
@@ -206,11 +215,14 @@ int adsp_core0_resume(void)
 
 		if (get_adsp_state(pdata) != ADSP_RUNNING) {
 			pr_warn("%s, can't going to resume\n", __func__);
+#ifdef CONFIG_MTK_AEE_FEATURE
 			adsp_aed_dispatch(EXCEP_KERNEL, pdata);
+#endif
 			return -ETIME;
 		}
+		adsp_timesync_resume();
 	}
-	pr_info("%s(), done elapse %lld us", __func__,
+	pr_debug("%s(), done elapse %lld us", __func__,
 		ktime_us_delta(ktime_get(), start));
 	return 0;
 }
@@ -249,10 +261,12 @@ static const struct of_device_id adsp_common_of_ids[] = {
 	{}
 };
 
+#ifdef CONFIG_MTK_AEE_FEATURE
 const struct attribute_group *adsp_common_attr_groups[] = {
 	&adsp_excep_attr_group,
 	NULL,
 };
+#endif
 
 const struct attribute_group *adsp_core_attr_groups[] = {
 	&adsp_default_attr_group,
@@ -262,7 +276,9 @@ const struct attribute_group *adsp_core_attr_groups[] = {
 static struct miscdevice adsp_common_device = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = "adsp",
+#ifdef CONFIG_MTK_AEE_FEATURE
 	.groups = adsp_common_attr_groups,
+#endif
 	.fops = &adsp_common_file_ops,
 };
 
@@ -284,12 +300,12 @@ static int adsp_user_event_notify(struct notifier_block *nb,
 		ret = kobject_uevent(&dev->kobj, KOBJ_ONLINE);
 		break;
 	default:
-		pr_info("%s, ignore event %lu", __func__, event);
+		pr_debug("%s, ignore event %lu", __func__, event);
 		break;
 	}
 
 	if (ret)
-		pr_info("%s, uevnet(%lu) fail, ret %d", __func__, event, ret);
+		pr_err("%s, uevnet(%lu) fail, ret %d", __func__, event, ret);
 
 	return NOTIFY_OK;
 }
@@ -307,7 +323,7 @@ static int adsp_pm_event(struct notifier_block *notifier
 
 	switch (pm_event) {
 	case PM_POST_HIBERNATION:
-		pr_notice("[ADSP] %s: reboot\n", __func__);
+		pr_debug("[ADSP] %s: reboot\n", __func__);
 		adsp_reset();
 		return NOTIFY_DONE;
 	case PM_SUSPEND_PREPARE:
@@ -342,7 +358,7 @@ static int adsp_common_drv_probe(struct platform_device *pdev)
 	/* indicate if adsp images is loaded successfully */
 	of_property_read_u32(dev->of_node, "load", &adsp_load);
 	if (!adsp_load)
-		pr_info("%s adsp disable\n", __func__);
+		pr_debug("%s adsp disable\n", __func__);
 
 	/* get resource from platform_device */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -356,19 +372,19 @@ static int adsp_common_drv_probe(struct platform_device *pdev)
 
 	ret = adsp_mem_device_probe(pdev);
 	if (ret) {
-		pr_info("%s(), memory probe fail, %d\n", __func__, ret);
+		pr_err("%s(), memory probe fail, %d\n", __func__, ret);
 		goto ERROR;
 	}
 
 	ret = adsp_mbox_probe(pdev);
 	if (ret) {
-		pr_warn("%s(), mbox probe fail, %d\n", __func__, ret);
+		pr_err("%s(), mbox probe fail, %d\n", __func__, ret);
 		goto ERROR;
 	}
 
 	ret = misc_register(&adsp_common_device);
 	if (ret) {
-		pr_warn("%s(), misc_register fail, %d\n", __func__, ret);
+		pr_err("%s(), misc_register fail, %d\n", __func__, ret);
 		goto ERROR;
 	}
 
@@ -377,10 +393,10 @@ static int adsp_common_drv_probe(struct platform_device *pdev)
 #ifdef CONFIG_PM
 	ret = register_pm_notifier(&adsp_pm_notifier_block);
 	if (ret)
-		pr_warn("[ADSP] failed to register PM notifier %d\n", ret);
+		pr_err("[ADSP] failed to register PM notifier %d\n", ret);
 #endif
 
-	pr_info("%s, success\n", __func__);
+	pr_debug("%s, success\n", __func__);
 ERROR:
 	return ret;
 }
@@ -479,7 +495,7 @@ static int adsp_core_drv_probe(struct platform_device *pdev)
 	/* add to adsp_core list */
 	adsp_cores[desc->id] = pdata;
 
-	pr_info("%s, id:%d success\n", __func__, pdata->id);
+	pr_debug("%s, id:%d success\n", __func__, pdata->id);
 	return 0;
 ERROR:
 	return ret;
@@ -501,28 +517,24 @@ static int adsp_ap_suspend(struct device *dev)
 		if (pdata->state == ADSP_RUNNING) {
 			ret = flush_suspend_work(pdata->id);
 
-			pr_info("%s, flush_suspend_work ret %d, cid %d",
+			pr_debug("%s, flush_suspend_work ret %d, cid %d",
 				__func__, ret, cid);
 		}
 	}
 
-#ifdef CONFIG_MTK_TIMER_TIMESYNC
 	if (is_adsp_system_running()) {
-		timesync_to_adsp(adsp_cores[ADSP_A_ID], APTIME_FREEZE);
-		pr_info("%s, time sync freeze", __func__);
+		adsp_timesync_suspend(APTIME_FREEZE);
+		pr_debug("%s, time sync freeze", __func__);
 	}
-#endif
 	return 0;
 }
 
 static int adsp_ap_resume(struct device *dev)
 {
-#ifdef CONFIG_MTK_TIMER_TIMESYNC
 	if (is_adsp_system_running()) {
-		timesync_to_adsp(adsp_cores[ADSP_A_ID], APTIME_UNFREEZE);
-		pr_info("%s, time sync unfreeze", __func__);
+		adsp_timesync_resume();
+		pr_debug("%s, time sync unfreeze", __func__);
 	}
-#endif
 	return 0;
 }
 

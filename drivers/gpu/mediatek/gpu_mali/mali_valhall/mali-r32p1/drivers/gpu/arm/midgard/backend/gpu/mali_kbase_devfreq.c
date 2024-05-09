@@ -29,9 +29,14 @@
 #if IS_ENABLED(CONFIG_DEVFREQ_THERMAL)
 #include <linux/devfreq_cooling.h>
 #endif
+#if IS_ENABLED(CONFIG_MALI_MTK_DEVFREQ)
+#include <platform/mtk_platform_common/mtk_platform_devfreq.h>
+#endif
 
 #include <linux/version.h>
 #include <linux/pm_opp.h>
+
+static struct devfreq_simple_ondemand_data ondemand_data;
 
 /**
  * get_voltage() - Get the voltage value corresponding to the nominal frequency
@@ -625,8 +630,10 @@ static void kbase_devfreq_work_term(struct kbase_device *kbdev)
 
 int kbase_devfreq_init(struct kbase_device *kbdev)
 {
+	struct device_node *np = kbdev->dev->of_node;
 	struct devfreq_dev_profile *dp;
 	int err;
+#if !IS_ENABLED(CONFIG_MALI_MTK_DEVFREQ)
 	unsigned int i;
 
 	if (kbdev->nr_clocks == 0) {
@@ -642,6 +649,7 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 			kbdev->current_freqs[i] = 0;
 	}
 	kbdev->current_nominal_freq = kbdev->current_freqs[0];
+#endif
 
 	dp = &kbdev->devfreq_profile;
 
@@ -651,6 +659,11 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	dp->get_dev_status = kbase_devfreq_status;
 	dp->get_cur_freq = kbase_devfreq_cur_freq;
 	dp->exit = kbase_devfreq_exit;
+
+#if IS_ENABLED(CONFIG_MALI_MTK_DEVFREQ)
+	mtk_mali_devfreq_update_profile(dp);
+	mtk_devfreq_update_voltage();
+#endif
 
 	if (kbase_devfreq_init_freq_table(kbdev, dp))
 		return -EFAULT;
@@ -667,8 +680,13 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 		return err;
 	}
 
+	of_property_read_u32(np, "upthreshold",
+			     &ondemand_data.upthreshold);
+	of_property_read_u32(np, "downdifferential",
+			     &ondemand_data.downdifferential);
+
 	kbdev->devfreq = devfreq_add_device(kbdev->dev, dp,
-				"simple_ondemand", NULL);
+				"simple_ondemand", &ondemand_data);
 	if (IS_ERR(kbdev->devfreq)) {
 		err = PTR_ERR(kbdev->devfreq);
 		kbdev->devfreq = NULL;

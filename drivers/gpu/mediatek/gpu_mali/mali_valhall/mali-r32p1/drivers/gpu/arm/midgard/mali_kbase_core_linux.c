@@ -1486,6 +1486,9 @@ static int kbasep_kcpu_queue_enqueue(struct kbase_context *kctx,
 static int kbasep_cs_tiler_heap_init(struct kbase_context *kctx,
 		union kbase_ioctl_cs_tiler_heap_init *heap_init)
 {
+	if (heap_init->in.group_id >= MEMORY_GROUP_MANAGER_NR_GROUPS)
+		return -EINVAL;
+
 	kctx->jit_group_id = heap_init->in.group_id;
 
 	return kbase_csf_tiler_heap_init(kctx, heap_init->in.chunk_size,
@@ -2066,6 +2069,9 @@ static ssize_t kbase_read(struct file *filp, char __user *buf, size_t count, lof
 
 	if (unlikely(!kctx))
 		return -EPERM;
+
+	if (count < data_size)
+		return -ENOBUFS;
 
 	if (atomic_read(&kctx->event_count))
 		read_event = true;
@@ -5083,6 +5089,36 @@ static struct attribute *kbase_scheduling_attrs[] = {
 	NULL
 };
 
+static ssize_t total_gpu_mem_show(
+	struct device *dev,
+	struct device_attribute *attr,
+	char *const buf)
+{
+	struct kbase_device *kbdev;
+	kbdev = to_kbase_device(dev);
+	if (!kbdev)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%lu\n",
+		(unsigned long) kbdev->total_gpu_pages << PAGE_SHIFT);
+}
+static DEVICE_ATTR_RO(total_gpu_mem);
+
+static ssize_t dma_buf_gpu_mem_show(
+	struct device *dev,
+	struct device_attribute *attr,
+	char *const buf)
+{
+	struct kbase_device *kbdev;
+	kbdev = to_kbase_device(dev);
+	if (!kbdev)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%lu\n",
+		(unsigned long) kbdev->dma_buf_pages << PAGE_SHIFT);
+}
+static DEVICE_ATTR_RO(dma_buf_gpu_mem);
+
 static struct attribute *kbase_attrs[] = {
 #ifdef CONFIG_MALI_DEBUG
 	&dev_attr_debug_command.attr,
@@ -5116,6 +5152,8 @@ static struct attribute *kbase_attrs[] = {
 #if !MALI_USE_CSF
 	&dev_attr_js_ctx_scheduling_mode.attr,
 #endif /* !MALI_USE_CSF */
+    &dev_attr_total_gpu_mem.attr,
+	&dev_attr_dma_buf_gpu_mem.attr,
 	NULL
 };
 
@@ -5177,6 +5215,9 @@ int kbase_sysfs_init(struct kbase_device *kbdev)
 			&kbase_attr_group);
 	}
 
+    kbdev->proc_sysfs_node = kobject_create_and_add("kprcs",
+			&kbdev->dev->kobj);
+
 	return err;
 }
 
@@ -5185,6 +5226,8 @@ void kbase_sysfs_term(struct kbase_device *kbdev)
 	sysfs_remove_group(&kbdev->dev->kobj, &kbase_mempool_attr_group);
 	sysfs_remove_group(&kbdev->dev->kobj, &kbase_scheduling_attr_group);
 	sysfs_remove_group(&kbdev->dev->kobj, &kbase_attr_group);
+	kobject_del(kbdev->proc_sysfs_node);
+	kobject_put(kbdev->proc_sysfs_node);
 	put_device(kbdev->dev);
 }
 
@@ -5344,13 +5387,8 @@ static int kbase_device_resume(struct device *dev)
 
 #ifdef CONFIG_MALI_DEVFREQ
 	dev_dbg(dev, "Callback %s\n", __func__);
-	if (kbdev->devfreq) {
-		mutex_lock(&kbdev->pm.lock);
-		if (kbdev->pm.active_count > 0)
-			kbase_devfreq_enqueue_work(kbdev, DEVFREQ_WORK_RESUME);
-		mutex_unlock(&kbdev->pm.lock);
-		flush_workqueue(kbdev->devfreq_queue.workq);
-	}
+	if (kbdev->devfreq)
+		kbase_devfreq_enqueue_work(kbdev, DEVFREQ_WORK_RESUME);
 #endif
 	return 0;
 }

@@ -107,7 +107,7 @@ static const struct of_device_id ufs_mtk_of_match[] = {
 extern bool clk_buf_ctrl(enum clk_buf_id id, bool onoff);
 #endif
 
-struct rpmb_dev *ufs_mtk_rpmb_get_raw_dev()
+struct rpmb_dev *ufs_mtk_rpmb_get_raw_dev(void)
 {
 	struct ufs_mtk_host *host = ufshcd_get_variant(ufs_mtk_hba);
 
@@ -731,11 +731,10 @@ static int ufs_mtk_setup_ref_clk(struct ufs_hba *hba, bool on)
 		return 0;
 
 	if (on) {
-		#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
-			clk_buf_ctrl(CLK_BUF_UFS, on);
-		#else
-			ufs_mtk_ref_clk_notify(on, res);
-		#endif
+	#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
+		clk_buf_ctrl(CLK_BUF_UFS, on);
+	#endif
+		ufs_mtk_ref_clk_notify(on, res);
 		ufshcd_delay_us(host->ref_clk_ungating_wait_us, 10);
 	}
 
@@ -788,9 +787,8 @@ out:
 		ufshcd_delay_us(host->ref_clk_gating_wait_us, 10);
 	#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 		clk_buf_ctrl(CLK_BUF_UFS, on);
-	#else
-		ufs_mtk_ref_clk_notify(on, res);
 	#endif
+		ufs_mtk_ref_clk_notify(on, res);
 	}
 
 	return 0;

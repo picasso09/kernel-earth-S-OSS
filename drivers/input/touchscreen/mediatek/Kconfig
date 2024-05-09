@@ -180,6 +180,15 @@ config TOUCHSCREEN_MTK_GT9157
 	  To compile this dirver as a module, choose M here: the
 	  module will be called
 
+config TOUCHSCREEN_COMMON
+	bool "Common touchscreen interface to interact with userspace"
+	default y
+	help
+	  Say Y here if you want to control touchpanel features via
+	  /sys/touchpanel.
+
+	  If unsure, say N.
+
 source "drivers/input/touchscreen/mediatek/GT9157/Kconfig"
 
 config TOUCHSCREEN_HIMAX_CHIPSET
@@ -201,13 +210,8 @@ config TOUCHSCREEN_GOODIX_BRL
 
 	  If build module, say M.
 	  If unsure, say N.
-# C3T code for HQ-218848 by chenzimo at 2022/08/23 start
+
 source "drivers/input/touchscreen/mediatek/goodix_berlin_driver/Kconfig"
 source "drivers/input/touchscreen/mediatek/ft8057/Kconfig"
-source "drivers/input/touchscreen/mediatek/xiaomi/Kconfig"
-# C3T code for HQ-218848 by chenzimo at 2022/08/23 end
-
-# C3T code for chipone_icnl9916 tp bring up by jishen at 2022/09/26 start 
 source "drivers/input/touchscreen/mediatek/chipone_ICNL_9916/Kconfig"
-# C3T code for chipone_icnl9916 tp bring up by jishen at 2022/09/26 end
 endif

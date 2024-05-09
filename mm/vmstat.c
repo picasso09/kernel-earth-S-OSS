@@ -1203,6 +1203,15 @@ const char * const vmstat_text[] = {
 	"pgscan_kswapd",
 	"pgscan_direct",
 	"pgscan_direct_throttle",
+	"lru_kswapd_no_progress",
+	"lru_kswapd_anon",
+	"lru_kswapd_file",
+	"lru_direct_anon",
+	"lru_direct_file",
+	"lru_kswapd_swap_full",
+	"lru_direct_swap_full",
+	"lru_no_gfp_io",
+	"lru_no_writepage",
 
 #ifdef CONFIG_NUMA
 	"zone_reclaim_failed",
@@ -1397,6 +1406,9 @@ static void pagetypeinfo_showfree_print(struct seq_file *m,
 			list_for_each(curr, &area->free_list[mtype])
 				freecount++;
 			seq_printf(m, "%6lu ", freecount);
+			spin_unlock_irq(&zone->lock);
+			cond_resched();
+			spin_lock_irq(&zone->lock);
 		}
 		seq_putc(m, '\n');
 	}
